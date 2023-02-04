@@ -16,6 +16,37 @@
     }
 }
 
+// OBJECT from Obstacle course that throws you forward
+class Script extends UserScriptComponent {
+    
+    impulse:number = 1000;
+    
+    private _cooldown:number|null = null;
+
+    start() {
+        this.entity.tags.add("noplayerparent");
+    }
+
+    tick() {
+        if (this._cooldown) {
+            this._cooldown -= this.game.frameDeltaTime;
+            if (this._cooldown <= 0) this._cooldown = null;
+        }
+    }
+
+    onTriggerStay(other:Entity) {
+        if (!other.tags.has('player') || this._cooldown) return;
+
+        this._cooldown = 0.25;
+        let impulse = this.entity.worldTransform.getForward().multiplyScalar(this.impulse);
+        other.sendEvent('set_impulse', impulse);
+
+        let sfx = this.entity.getComponentByType(ComponentType.Sound);
+        if (sfx && sfx.play) sfx.play();
+    }
+}
+
+
 // SPAWN Entity from Template
 class Script extends UserScriptComponent {
     @description("The number of units away from the last spawn position the Entity must be before it will spawn another Template.")
