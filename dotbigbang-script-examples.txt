@@ -16,6 +16,56 @@
     }
 }
 
+// SPAWN Entity from Template
+class Script extends UserScriptComponent {
+    @description("The number of units away from the last spawn position the Entity must be before it will spawn another Template.")
+    @numberRange(1, 100)
+    spacing=10;
+    @description("The Template to spawn.")
+    template = new TemplateRef();
+
+    private _lastSpawnPosition = new Vector3();
+
+    /**
+     * start() is called once on game start, or when this Entity is added to a running game.
+     */
+    start() {
+        // Initialize the last spawn position with the Entity's current position.
+        this._lastSpawnPosition.copy(this.entity.worldTransform.position);
+    } 
+    
+    /**
+     * `tick()` is called once per frame.
+     */
+    tick() {
+        // If no Template is set do nothing.
+        let template = this.template.get();
+        if (!template) {
+            return;
+        }
+
+        // Calculate how far we are from the last spawn position.
+        const position = this.entity.worldTransform.position;
+        const distance = position.distanceTo(this._lastSpawnPosition);
+
+        // Spawn if we have moved enough.
+        if (distance >= this.spacing) {
+            // Just spawn these for the localk player since everyone will see roughly the same thing.
+            const networked = false;
+            const transformNetworked = false;
+
+            // Do some math to get exact spawn spacing.
+            const spawnPosition = this._lastSpawnPosition.clone().sub(position).setLength(this.spacing).add(this._lastSpawnPosition);
+
+            // Spawn the Template.
+            this.game.addEntityFromTemplate(template, networked, transformNetworked, spawnPosition);
+
+            // Store the new spawn position.
+            this._lastSpawnPosition.copy(position);
+        }
+    }
+}
+
 
 
 // CHANGE HEIGHT OF OBJECT
