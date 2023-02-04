@@ -1,5 +1,7 @@
 // In typescript
 
+// Find scripts for pet follow the player, and on collision Enter swipe or something + do damage
+
 
 
 
@@ -15,6 +17,15 @@
         this.entity.worldTransform.scale.set(1,1,1);
     }
 }
+
+
+
+/* 
+quick example of choosing a random spawn point and teleporting the local player to it
+let spawns = this.game.getEntitiesByTag("spawnpoint")
+let spawnPosition = spawns[Random.index(spawns.length)].worldTransform
+this.game.playerEntity!.teleport(spawnPosition)
+*/
 
 // OBJECT from Obstacle course that throws you forward
 class Script extends UserScriptComponent {
