@@ -1,0 +1,174 @@
+// In typescript
+
+
+
+
+    
+    // assuming you grab the entity for scale
+    start(){
+        this.entity.worldTransform.scale.set(1,1,1);
+    }
+    grow() {
+        this.entity.worldTransform.scale.set(3,3,3);
+    }
+    shrink() {
+        this.entity.worldTransform.scale.set(1,1,1);
+    }
+}
+
+
+
+
+
+
+// SETUP FOR TAGS (add under "entities" tab and type in tag)
+class Script extends UserScriptComponent {
+
+    // The following function will run when the "lightOn" event is sent to this entity.
+    lightOn(){
+        let obRenderer = this.entity.getComponentByType(ComponentType.VoxelObject);
+        if(obRenderer){
+            obRenderer.emissive.set('#5463a3');
+        }
+    }
+
+    // The following function will run when the "lightOff" event is sent to this entity.
+    lightOff(){
+        let obRenderer = this.entity.getComponentByType(ComponentType.VoxelObject);
+        if(obRenderer){
+            obRenderer.emissive.set('#000000');
+        }
+    }
+
+}
+
+
+// SEND TO TAG TRIGGER
+class Script extends UserScriptComponent {
+
+    // This is the name of the tag we will send the event to.
+    // We set the tag name in the Entity Panel under "Tag Name"
+    // Every entity in the game with this tag on it will recieve the event we send it.
+    tagName = "";
+
+    // First we check for when the player collides with the button 
+    onCollisionEnter(other:Entity){
+        if(other.tags.has('player')){
+            // When the player has collided with this button, we send our event to the tag
+            // using this.game.sendEventTag, which takes up to three arguments.
+            // First you need to provide the tag name, then the name of the event you want to send.
+            // If you want to send any arguments with the event, you can add them after the event name.
+            this.game.sendEventToTag(this.tagName,'lightOn');
+
+            // Sending an event with arguments would look like this:
+            // this.game.sendEventToTag("tag_name","event_name","argument");
+        }
+    }
+
+    onCollisionExit(other:Entity){
+        this.game.sendEventToTag(this.tagName,'lightOff');
+    }
+}
+
+// UPDATE a UI TEXT BOX 
+class Script extends UserScriptComponent {
+
+    start(){
+        // Here we get the entity's collision component 
+        let collision = this.entity.getComponentByType(ComponentType.Collision);
+        // If the entity has a collision component (all entities should!) then we set it's CollisionComponentResponseType 
+        // to Trigger
+        if(collision) {
+            collision.responseType = CollisionComponentResponseType.Trigger;
+        }
+    }
+
+    // We will make the ghost light up when you trigger it to show visually when you have made a collision.
+    onTriggerEnter(other:Entity){
+        // We check to make sure that the entity triggering the object is the player
+        if(other.tags.has('player')){
+            // Once we know the player is the one triggering the ghost, we grab the object's renderer and change the color of its emissive
+            let obRenderer = this.entity.getComponentByType(ComponentType.VoxelObject);
+            if(obRenderer){
+                obRenderer.emissive.set('#5463a3');
+            }
+            // We send the 'updateUI' event to the tag 'ui', which will send this event to the sign holding the UI code because it is tagged 'ui'
+            this.game.sendEventToTag('ui', 'updateUI');
+        }
+    }
+
+    // ------------- //
+    //  The onTriggerExit() function works just like onTriggerEnter(), but runs some code AFTER a trigger stops happening.
+    //  In this example, onTriggerEnter() will run when you step into the ghost, and onTriggerExit() will run when you step away from the ghost.
+    // ------------- //
+    onTriggerExit( other : Entity ){
+        // We are check to make sure that the entity triggering the object is the player
+        if(other.tags.has('player')){
+            // Once we know the player is the one triggering the ghost, we grab the object's renderer again and change back the emissive color to black
+            let obRenderer = this.entity.getComponentByType(ComponentType.VoxelObject);
+            if(obRenderer){
+                obRenderer.emissive.set('#000000');
+            }
+        }
+    }
+}
+
+// UI TEXT set to show when you enter room
+class Script extends UserScriptComponent {
+
+    //  All text needs a font! We set a Font Reference that we can set in the editor. This will be the font our text will use.
+    font = new FontRef();
+
+    // Here we create two new UITextElements, the number of collisions and the text that says "collisions with ghosties"
+    private _numCollisionsText : UITextElement | null = null;
+    private _ghostieText : UITextElement | null = null;
+
+    // numCollisions will keep track of the amount of times we run into a ghost.
+    numCollisions = 0;
+
+    start() {
+        // In the start function we will create our text element with game.ui.createTextElement. 
+        // This function takes two arguments, the font and the text we want to display.
+        this._numCollisionsText = this.game.ui.createTextElement(this.font.get()!, (this.numCollisions).toString());
+
+        // After creating the UI element, we will set it's size and position, and then set it as NOT visible until the player enters this room.
+        this._numCollisionsText.setSize(5);
+        this._numCollisionsText.setPosition(new Vector2(0.05, 0.05));
+        this._numCollisionsText.setVisible(false);
+
+        // We do the same thing for the second UI element. 
+        this._ghostieText = this.game.ui.createTextElement(this.font.get()!, "collisions with ghosties");
+        this._ghostieText.setSize(1);
+        this._ghostieText.setPosition(new Vector2(0.16, 0.05));
+        this._ghostieText.setVisible(false);
+    } 
+    
+    // This function is called when the player enters this room.
+    // It sets the UI to visible. 
+    showUI(){
+        if( this._numCollisionsText && this._ghostieText ) {
+            this._numCollisionsText.setVisible(true);
+            this._ghostieText.setVisible(true);
+        }
+    }
+
+    // This function is called when the player leaves this room.
+    // It sets the UI bacj to invisible.
+    hideUI(){
+        if( this._numCollisionsText && this._ghostieText ) {
+            this._numCollisionsText.setVisible(false);
+            this._ghostieText.setVisible(false);
+        }
+    }
+
+    // This function is called every time we collide with a ghost.
+    updateUI(){
+        // First we increment the number of collisions.
+        this.numCollisions += 1;
+        // Then update the text to match the new number of collisions.
+        if(this._numCollisionsText) {
+            this._numCollisionsText.setText((this.numCollisions).toString());
+        }
+    }
+
+}
