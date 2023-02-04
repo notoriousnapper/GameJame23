@@ -18,6 +18,32 @@
 
 
 
+// CHANGE HEIGHT OF OBJECT
+class Script extends UserScriptComponent {
+
+    private _initialPosition = new Vector3();
+
+    // We start by storing the entity's initial position.
+    start(){
+        this._initialPosition.set(this.entity.worldTransform.position.x,
+                                  this.entity.worldTransform.position.y,
+                                  this.entity.worldTransform.position.z);
+    }
+
+    // When the "move" event is sent to the entity, it will move the distance we have passed into the function in the y direction.
+    move(distance:number){
+        this.entity.worldTransform.position.y += distance;
+    }
+
+    // When the "resetPosition" event is sent to the entity, it returns back to it's initial position.
+    resetPosition(){
+        this.entity.worldTransform.position.set(this._initialPosition.x,
+                                                this._initialPosition.y,
+                                                this._initialPosition.z);
+    }
+}
+
+
 
 
 
