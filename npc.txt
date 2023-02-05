@@ -1,0 +1,316 @@
+// HurtOnTouch
+class Script extends UserScriptComponent {
+    hurtAmount = 40
+    onTriggerEnter(other: Entity) {
+        other.sendEvent("damage", this.hurtAmount)
+    }
+}
+
+// Follow Player
+class Script extends UserScriptComponent {
+
+    @numberRange(0, 1000)
+    speed = 50;
+
+    @numberRange(10, 4000)
+    perceptionDistance = 180;
+
+    @numberRange(2, 1000)
+    targetDistance = 20;
+
+    @numberRange(10, 500)
+    startMovingDistance = 60;
+
+    gravityAcceleration = 250;
+
+    bounce = false;
+    bounceImpulse = 50;
+
+    target = new EntityRef();
+
+    startEnabled = true;
+
+    teleportRecovery = false;
+    teleportThreshold = 200;
+    teleportRange = 30;
+    teleportFX = new TemplateRef();
+
+    removeIfTargetRemoved = false;
+
+    private _velocity = new Vector3(); // NOTE: used only for gravity apparently
+    private _resetPos = new Vector3();
+    private _resetInterval = 1;
+    private _resetTimer = 1;
+
+    private _tempVec3 = new Vector3();
+    private _tempVec3b = new Vector3();
+
+    private _rotation = new Quaternion();
+
+    private _parentPosXZ = new Vector3();
+    private _playerPosXZ = new Vector3();
+
+    private readonly _up = new Vector3(0, 1, 0);
+    private readonly _forward = new Vector3(0, 0, 1);
+
+    private _enabled = true;
+
+    private _t = 0;
+
+    private _targetOnGround = false;
+    private _lastParked = false;
+    private _shouldWaitToStart = false;
+    private _hadTarget = false;
+
+    private _xzVelocity = 0;
+
+    setTarget(target: Entity | null) {
+        // PQ: silly hack for finding any pet targeting a given player.
+        if (target) this.entity.tags.add('pet-'+target.id);
+        
+        const oldTarget = this.target.get();
+        if (oldTarget) this.entity.tags.remove('pet-'+oldTarget.id);
+
+        this.target.set(target);
+        if (target) this._hadTarget = true;
+    }
+
+    enable() {
+        this._enabled = true;
+    }
+
+    disable() {
+        this._enabled = false;
+    }
+
+    enablePet() {
+        this.enable();
+    }
+
+    disablePet() {
+        this.disable();
+    }
+
+    response_isOnGround(answer: boolean) {
+        this._targetOnGround = answer;
+    }
+
+    teleportToTargetEntity(target: Entity) {
+        const pos = this.entity.worldTransform.position;
+        const theta = Math.random() * Math.PI * 2;
+        const offset = new Vector3(Math.cos(theta) * 30, 15, Math.sin(theta) * 30);
+
+        const fxTemplate = this.teleportFX.get();
+        if (fxTemplate) {
+            const fx = fxTemplate?.createEntity();
+            fx.worldTransform.position.copy(pos);
+            this.game.addEntity(fx, false, false);
+        }
+
+        pos.copy(target.worldTransform.position).add(offset);
+
+        if (fxTemplate) {
+            const fx = fxTemplate?.createEntity();
+            fx.worldTransform.position.copy(pos);
+            this.game.addEntity(fx, false, false);
+        }
+    }
+
+    start() {
+        this._enabled = this.startEnabled;
+        this._velocity.set(0, 0, 0);
+        this._resetInterval = 1;
+        this._resetTimer = this._resetInterval;
+        this._resetPos.copy(this.entity.worldTransform.position);
+        this._t = -Math.random();
+        this._targetOnGround = false;
+        this._xzVelocity = 0;
+    }
+
+    onCollisionCorrection(correction: Vector3) {
+        if (this.entity.isNetworked && !this.entity.isOwnedLocally) return;
+
+        // we only care about velocities toward the collision plane.
+        if (this._velocity.dot(correction) < 0) {
+            this._tempVec3.copy(this._velocity).projectOnVector(correction);
+            this._velocity.sub(this._tempVec3);
+        }
+
+        // If our position reset timer has expired and we're stainding on something,
+        // copy our current position to the reset position so we have a known
+        // good position to return to.
+        const cosTheta = this._tempVec3.copy(correction).normalize().dot(this._up);
+        if (this._resetTimer <= 0 && cosTheta > (1 - Math.PI / 16)) {
+            this._resetPos.copy(this.entity.worldTransform.position);
+            this._resetTimer += this._resetInterval;
+        }
+    }
+
+    tick() {
+        if (this.entity.isNetworked && !this.entity.isOwnedLocally) {
+            return;
+        }
+
+        this._t += this.game.frameDeltaTime;
+
+        const isFloating = (this.gravityAcceleration === 0);
+        // PQ: bob up and down in the air
+        if (isFloating) {
+            const yOffset = Math.sin(this._t * Math.PI) * .1;
+            this.entity.worldTransform.position.y += yOffset;
+        }
+
+        // PQ: fix rotation when parented
+        if (this.entity.parentEntity) {
+            this._fixRotation();
+        }
+
+        if (!this._enabled) {
+            return;
+        }
+
+        const pos = this.entity.worldTransform.position;
+
+        let target = this.target.get();
+
+        if (!target) {
+            if (this._hadTarget && this.removeIfTargetRemoved)
+            {
+                this.game.removeEntity(this.entity);
+                return;
+            }
+
+            let players = this.game.getEntitiesByTag('remotePlayer');
+            if (this.game.playerEntity) {
+                players = players.slice();
+                players.push(this.game.playerEntity);
+            }
+
+            let minDist = Infinity;
+
+            for (let player of players) {
+                let dist = pos.distanceToSquared(player.worldTransform.position);
+                if (dist < minDist) {
+                    minDist = dist;
+                    target = player;
+                }
+            }
+        }
+
+        if (!target) {
+            return;
+        }
+
+        const deltaTime = this.game.frameDeltaTime;
+        const transform = this.entity.worldTransform;
+        this._velocity.set(0, this._velocity.y - this.gravityAcceleration * deltaTime, 0);
+
+        let playerPos = target.worldTransform.position;
+
+        // Reset if you fall off the level
+        if (pos.y < -300) {
+            pos.copy(this._resetPos);
+            this._velocity.set(0, 0, 0);
+            this._xzVelocity = 0;
+        }
+
+        this._parentPosXZ.copy(pos);
+        this._playerPosXZ.copy(playerPos);
+        this._parentPosXZ.y = this._playerPosXZ.y;
+
+        const xzDistance = this._parentPosXZ.distanceTo(this._playerPosXZ);
+        const parked = xzDistance <= this.targetDistance;
+
+        if (!this._shouldWaitToStart) {
+            this._shouldWaitToStart = parked && !this._lastParked;
+        }
+        const shouldWaitStart = this._shouldWaitToStart && xzDistance < this.startMovingDistance;
+
+        if (xzDistance < this.perceptionDistance && xzDistance > this.targetDistance && !shouldWaitStart) {
+            this._shouldWaitToStart = false;
+            this._tempVec3.subVectors(this._tempVec3b.copy(playerPos).setY(pos.y), pos);
+
+            const rotation = this._rotation.setFromUnitVectors(this._forward, this._tempVec3.normalize());
+            transform.rotation.setFromQuaternion(rotation);
+
+            this._xzVelocity = MathUtils.clamp(this._xzVelocity + this.speed * 2 * deltaTime, 0, this.speed);
+
+            const DecelDist = 20;
+            const decel = MathUtils.mapLinear(MathUtils.clamp(xzDistance - this.targetDistance, 0, DecelDist), 0, DecelDist, .05, 1);
+
+            this._tempVec3.setLength(deltaTime * this._xzVelocity * decel);
+
+            pos.add(this._tempVec3);
+        }
+        else {
+            this._xzVelocity = 0;
+        }
+
+        this._lastParked = parked;
+
+        pos.add(this._tempVec3.copy(this._velocity).multiplyScalar(deltaTime));
+        this._resetTimer -= deltaTime;
+
+        // PQ: vertical motion for fliers
+        if (isFloating) {
+            const yTarget = playerPos.y + 17;
+            if (Math.abs(pos.y - yTarget) > 2) {
+                pos.setY(MathUtils.lerp(pos.y, yTarget, this.game.frameDeltaTime * 2));
+            }
+        }
+
+        // PQ: only teleport if there is a _set_ target!
+        if (this.target.get() && this.teleportRecovery) {
+
+            // PQ: don't teleport if your player is off the ground!
+            target.sendEvent('request_isOnGround', this.entity);
+            if (this._targetOnGround) {
+                this._targetOnGround = false;
+                const distSquared = pos.distanceToSquared(target.worldTransform.position);
+                if (distSquared >= this.teleportThreshold * this.teleportThreshold) {
+                    this.teleportToTargetEntity(target);
+                }
+            }
+        }
+    }
+
+    // postCollisionTick() {
+    //     // PQ: offset the position of floating pets for rendering, cosmetically
+    //     const isFloating = (this.gravityAcceleration == 0);
+    //     if (isFloating) {
+    //         const yOffset = Math.sin(this._t * Math.PI) * 2;
+    //         this.entity.worldTransform.position.y += yOffset;
+    //     }
+    // }
+
+    // PQ: these two are here to handle the followed player riding things
+    onCollisionStay(other: Entity) {
+        if (!this.entity.isOwnedLocally) return;
+        if (other.id !== this.target.get()?.parentEntity?.id) return;
+
+        this.entity.setParentEntity(other, true);
+    }
+    
+    onCollisionExit(other: Entity) {
+        if (!this.entity.isOwnedLocally) return;
+        if (other.id !== this.entity.parentEntity?.id) return;
+
+        this.entity.setParentEntity(null, true);
+    }
+
+    onCollisionEnter(other : Entity) {
+        if (!this.entity.isOwnedLocally) return;
+        if (!this.bounce) return;
+
+        this._velocity.y = this.bounceImpulse;
+    }
+
+    private _fixRotation() {
+        // PQ: fix rotation (we can parent to things that spin on x or z, etc.)
+        //     and we will be left slanted when we unparent.
+        let rot = this.entity.worldTransform.rotation;
+        if (rot.x || rot.z) {
+            rot.x = rot.z = 0;
+        }
+    }
+}
